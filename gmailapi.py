@@ -49,7 +49,7 @@ auth_url = u"https://accounts.google.com/o/oauth2/auth?"
 auth_info = {
 	"client_id"  :"",
 	"client_secret" : "",
-	"redirect_uri" : "urn:ietf:wg:oauth:2.0:oob",
+	"redirect_uri" : "",
 	"scope" : "https://mail.google.com/",
 	"response_type":u"code",
 }
