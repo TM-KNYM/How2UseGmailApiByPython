@@ -4,26 +4,6 @@
 '''
 memo:
 
-setup
-
-インストール　（Linux）
-
-easy installを使う場合
-	sudo easy_install --upgrade google-api-python-client
-
-pipを使う場合
-	sudo pip install --upgrade google-api-python-client
-
-
-GAEを使う場合もあるが今回は使わないので割愛
-
-具体的な使い方はここが分かりやすそう。
-https://developers.google.com/api-client-library/python/guide/aaa_oauth?hl=ja#oauth
-
-http://everyday-01.blogspot.jp/2013/01/google-drive-sdkpython.html
-gmail scope
-https://developers.google.com/gmail/api/auth/scopes?hl=ja
-
 
 '''
 import sys
@@ -46,23 +26,28 @@ from email.mime.text import MIMEText
 
 auth_url = u"https://accounts.google.com/o/oauth2/auth?"
 
-auth_info = {
-	"client_id"  :"",
-	"client_secret" : "",
-	"redirect_uri" : "",
-	"scope" : "https://mail.google.com/",
-	"response_type":u"code",
+response_setting = {
+    "scope" : "https://mail.google.com/",
+    "response_type":u"code",
 }
 class GmailApi():
         def reconnect(self):
+            '''サーバーにアクセスして認証をもう一度行う
+            '''
             try:
-                self.service = GmailServiceFactory().createService()
+                self.service = GmailServiceFactory().createService(self.auth_info)
             except errors.HttpError, error:
                  pass
 
 	def sendMessage(self, user, message):
-		"""Send an email message.
-		"""
+		"""メールを送信します。messageの作り方はcreateMesage関数を参照
+
+                    Keyword arguments:
+                    user -- meを指定する。
+                    message -- createMessageで生成したオブジェクトを渡す必要があります
+
+                    Returns: None
+                """
 		try:
 			message = (self.service.users().messages().send(userId=user, body=message).execute())
 			return message
@@ -70,16 +55,78 @@ class GmailApi():
 			print 'An error occurred: %s' % error
 
 	def getMailList(self,user,qu):
+            ''' メールの情報をリストで取得します
+              quの内容でフィルタリングする事が出来ます
+
+               Keyword arguments:
+               user -- me又はgoogleDevloperに登録されたアドレスを指定します。
+               qu -- queryを設定します
+                     例えばexample@gmail.comから送られてきた未読のメールの一覧を取得するには以下のように指定すればよい
+                    "from: example@gmail.com is:unread"
+               Returns: メール情報の一覧　idとThreadIdをKeyとした辞書型のリストになる
+                 "messages": [
+                      {
+                       "id": "nnnnnnnnnnnn",
+                       "threadId": "zzzzzzzzzzz"
+                      },
+                      {
+                       "id": "aaaaaa",
+                       "threadId": "bbbbbb"
+                      },,,,
+                  }
+            '''
             try:
-		return self.service.users().messages().list(userId=user,q=qu).execute() 
+               return self.service.users().messages().list(userId=user,q=qu).execute() 
             except errors.HttpError, error:
-                reconnect()
+               reconnect()
+
 	def getMailContent(self, user, i):
+            """指定したメールのIDからメールの内容を取得します。
+
+                    Keyword arguments:
+                    user -- meを指定する。
+                    i -- メールのId getMailList()等を使用して取得したIdを使用する
+
+                    Returns: メールの内容を辞書型で取得する
+                    詳細は以下
+                    http://developers.google.com/apis-explorer/#p/gmail/v1/gmail.users.messages.get
+            """
             try:
 		return  self.service.users().messages().get(userId=user,id=i).execute() 
             except errors.HttpError, error:
                     reconnect()
-	def expMailContents(self, user, i, key):
+
+	def doMailAsRead(self,user,i):
+            """指定したメールのIDを既読にします
+                Keyword arguments:
+                user -- meを指定する。
+                i -- メールのId getMailList()等を使用して取得したIdを使用する
+
+                Returns:　なし
+            """
+            query ={"removeLabelIds":
+                            ["UNREAD"]
+                            }
+            self.service.users().messages().modify(userId=user,id=i,body=query).execute()
+	
+	def createMessage(self, sender, to, subject, message_text):
+                """sendMessageで送信するメールを生成します
+                    Keyword arguments:
+                    sender -- meを指定する。
+                    to -- メールのId getMailList()等を使用して取得したIdを使用する
+                    subject -- 件名
+                    message_text --　メールの内容
+                    
+                    Returns:　なし  
+                """
+		message = MIMEText(message_text)
+		message['to'] = to
+		message['from'] = sender
+		message['subject'] = subject
+		return {'raw': base64.urlsafe_b64encode(message.as_string())}
+
+	#以下は必要に迫られて作った関数	
+        def expMailContents(self, user, i, key):
             try:
 		content =  self.getMailContent(user,i)
 		return (filter(lambda header:header["name"] == key, content["payload"]["headers"] ))[0]["value"]
@@ -94,44 +141,24 @@ class GmailApi():
             try:
 		return self.expMailContents(user, i, "Subject") 
             except errors.HttpError, error:
-                    reconnect()   
-	def doMailAsRead(self,user,messageId):
-            """ Making mail as read
-
-            """
-            try:
-                query ={"removeLabelIds":
-                                ["UNREAD"]
-                                }
-                self.service.users().messages().modify(userId=user,id=messageId,body=query).execute()
-            except errors.HttpError, error:
-                reconnect()
+                    reconnect()    
 	
-	def createMessage(self, sender, to, subject, message_text):
-		"""Create a message for an email.
-		"""
-		message = MIMEText(message_text)
-		message['to'] = to
-		message['from'] = sender
-		message['subject'] = subject
-		return {'raw': base64.urlsafe_b64encode(message.as_string())}
-	 
-	def __init__(self):
-            try:
-		self.service = GmailServiceFactory().createService()
-            except errors.HttpError, error:
-                 pass
+        
+        def __init__(self, auth_info):
+            self.auth_info = auth_info
+            self.service = GmailServiceFactory().createService(self.auth_info)
 
 class GmailServiceFactory():
 
-    def createService(self):
+    def createService(self, auth_info):
 		STORAGE = Storage('gmail.auth.storage')
 		credent = STORAGE.get()
         
 		if credent is None or credent.invalid:
-			flow = OAuth2WebServerFlow(auth_info["client_id"], auth_info["client_secret"], auth_info["scope"],auth_info["redirect_uri"])
+                        info = auth_info['installed']
+                        flow = OAuth2WebServerFlow(info["client_id"], info["client_secret"], response_setting["scope"],info["redirect_uris"][0])
 			auth_url = flow.step1_get_authorize_url()
-			webbrowser.open(auth_url)
+			webbrowser.open(auth_url)#ブラウザを開いて認証する
 			code = raw_input("input code : ")
 			credent = flow.step2_exchange(code)
 			STORAGE.put(credent)
